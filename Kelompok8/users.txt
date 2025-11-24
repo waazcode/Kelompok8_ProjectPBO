@@ -1,0 +1,7 @@
+tary;123;admin
+fawas,123,customer
+caca;1234;customer
+fawwaz;1234;customer
+saya;1234;admin
+waaz;1234;customer
+sir;1234;admin
