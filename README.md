@@ -2,7 +2,7 @@
 
 Anggota Kelompok 08:
 1. Fawwaz Ziyadi Ilmi
-2. Thary Nabila Jannatul Rizky
+2. Thary Nabila Jannatul Rizki
 3. Habib Nuran Mulkan
 
 # ANONIM CAMERA STORE
