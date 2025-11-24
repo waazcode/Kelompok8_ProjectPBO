@@ -260,3 +260,265 @@ public class MainGUI extends JFrame {
         panel.add(new JScrollPane(cartTable), BorderLayout.CENTER);
 
         JPanel bottom = new JPanel(new GridLayout(0, 1, 8, 8));
+        cartTotalLabel.setFont(cartTotalLabel.getFont().deriveFont(Font.BOLD, 16f));
+        bottom.add(cartTotalLabel);
+
+        JPanel qtyPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        qtyPanel.add(new JLabel("Bayar via:"));
+        paymentCombo.setSelectedIndex(0);
+        paymentCombo.addActionListener(e -> updateTransferBankState());
+        qtyPanel.add(paymentCombo);
+
+        JLabel bankLabel = new JLabel("Bank:");
+        transferBankCombo.setEnabled(false);
+        qtyPanel.add(bankLabel);
+        qtyPanel.add(transferBankCombo);
+        updateTransferBankState();
+        bottom.add(qtyPanel);
+
+        JButton checkoutBtn = new JButton("Checkout Terpilih");
+        checkoutBtn.addActionListener(e -> checkoutSelectedItems());
+        JButton clearBtn = new JButton("Kosongkan");
+        clearBtn.addActionListener(e -> {
+            if (activeCustomer == null) return;
+            activeCustomer.getCart().clear();
+            refreshCart();
+        });
+
+        JPanel actionPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 12, 0));
+        JButton removeSelectedBtn = new JButton("Hapus Terpilih");
+        removeSelectedBtn.addActionListener(e -> removeSelectedCartItems());
+        actionPanel.add(removeSelectedBtn);
+        actionPanel.add(clearBtn);
+        actionPanel.add(checkoutBtn);
+        bottom.add(actionPanel);
+
+        JButton historyBtn = new JButton("Riwayat Pesanan");
+        historyBtn.addActionListener(e -> showCustomerOrders());
+        bottom.add(historyBtn);
+
+        panel.add(bottom, BorderLayout.SOUTH);
+        return panel;
+    }
+
+    private JPanel buildProductPanel(boolean forCustomer) {
+        JPanel panel = new JPanel(new BorderLayout(8, 8));
+        panel.setBorder(createCardBorder("Daftar Produk"));
+        JTable table = forCustomer ? customerProductTable : adminProductTable;
+        panel.add(new JScrollPane(table), BorderLayout.CENTER);
+
+        if (forCustomer) {
+            JPanel bottom = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 4));
+            JLabel qtyLabel = new JLabel("Jumlah:");
+            SpinnerNumberModel spinnerModel = new SpinnerNumberModel(1, 1, 100, 1);
+            JSpinner qtySpinner = new JSpinner(spinnerModel);
+            JButton addButton = new JButton("Tambah ke Keranjang");
+            addButton.addActionListener(e -> {
+                if (activeCustomer == null) {
+                    showError("Silakan login sebagai customer terlebih dahulu.");
+                    return;
+                }
+                int selected = customerProductTable.getSelectedRow();
+                if (selected < 0) {
+                    showError("Pilih produk terlebih dahulu.");
+                    return;
+                }
+                int productId = (int) productTableModel.getValueAt(selected, 0);
+                Product product = store.getProductById(productId);
+                if (product == null) {
+                    showError("Produk tidak ditemukan.");
+                    return;
+                }
+                int qty = (int) qtySpinner.getValue();
+                if (qty <= 0 || qty > product.getStock()) {
+                    showError("Jumlah tidak valid atau melebihi stok.");
+                    return;
+                }
+                activeCustomer.getCart().addItem(product, qty);
+                refreshCart();
+            });
+            bottom.add(qtyLabel);
+            bottom.add(qtySpinner);
+            bottom.add(addButton);
+            panel.add(bottom, BorderLayout.SOUTH);
+        }
+        return panel;
+    }
+
+    private JPanel buildAdminPanel() {
+        JPanel container = createBasePanel();
+
+        JPanel top = new JPanel(new BorderLayout());
+        JLabel title = new JLabel("Dashboard Admin");
+        title.setFont(title.getFont().deriveFont(Font.BOLD, 22f));
+        top.add(title, BorderLayout.WEST);
+
+        JButton logout = new JButton("Logout");
+        logout.addActionListener(e -> {
+            activeAdmin = null;
+            cardLayout.show(cardPanel, "AUTH");
+        });
+        top.add(logout, BorderLayout.EAST);
+        container.add(top, BorderLayout.NORTH);
+
+        JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT);
+        split.setResizeWeight(0.55);
+        split.setLeftComponent(buildAdminProductArea());
+        split.setRightComponent(buildAdminOrderArea());
+        container.add(split, BorderLayout.CENTER);
+
+        return container;
+    }
+
+    private JPanel buildAdminProductArea() {
+        JPanel panel = new JPanel(new BorderLayout(8, 8));
+        panel.setBorder(createCardBorder("Kelola Produk"));
+
+        adminProductTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        adminProductTable.getSelectionModel().addListSelectionListener(e -> {
+            if (adminProductTable.getSelectedRow() >= 0) {
+                populateProductForm(adminProductTable.getSelectedRow());
+            }
+        });
+        panel.add(new JScrollPane(adminProductTable), BorderLayout.CENTER);
+
+        JPanel form = new JPanel(new GridLayout(0, 2, 8, 8));
+        form.setBorder(new EmptyBorder(8, 8, 8, 8));
+        form.add(new JLabel("ID"));
+        form.add(productIdField);
+        form.add(new JLabel("Nama"));
+        form.add(productNameField);
+        form.add(new JLabel("Deskripsi"));
+        form.add(productDescField);
+        form.add(new JLabel("Harga"));
+        form.add(productPriceField);
+        form.add(new JLabel("Stok"));
+        form.add(productStockField);
+        panel.add(form, BorderLayout.SOUTH);
+
+        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 8));
+        JButton addBtn = new JButton("Tambah");
+        addBtn.addActionListener(e -> addProduct());
+        JButton updateBtn = new JButton("Update");
+        updateBtn.addActionListener(e -> updateProduct());
+        JButton deleteBtn = new JButton("Hapus");
+        deleteBtn.addActionListener(e -> deleteProduct());
+
+        buttons.add(addBtn);
+        buttons.add(updateBtn);
+        buttons.add(deleteBtn);
+        panel.add(buttons, BorderLayout.NORTH);
+
+        return panel;
+    }
+
+    private JPanel buildAdminOrderArea() {
+        JPanel panel = new JPanel(new BorderLayout(8, 8));
+        panel.setBorder(createCardBorder("Order Masuk"));
+        orderTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        orderTable.setRowHeight(26);
+        JScrollPane orderScroll = new JScrollPane(orderTable);
+        panel.add(orderScroll, BorderLayout.CENTER);
+
+        orderTable.getSelectionModel().addListSelectionListener(e -> {
+            if (!e.getValueIsAdjusting()) {
+                populateOrderItems(orderTable.getSelectedRow());
+            }
+        });
+
+        JPanel detailPanel = new JPanel(new BorderLayout());
+        detailPanel.setBorder(createCardBorder("Rincian Barang"));
+        orderItemsTable.setRowHeight(24);
+        detailPanel.add(new JScrollPane(orderItemsTable), BorderLayout.CENTER);
+        detailPanel.setPreferredSize(new Dimension(200, 140));
+        panel.add(detailPanel, BorderLayout.NORTH);
+
+        JPanel statusPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 8));
+        JComboBox<Order.Status> statusCombo = new JComboBox<>(Order.Status.values());
+        JButton updateBtn = new JButton("Perbarui Status");
+        updateBtn.addActionListener(e -> {
+            int row = orderTable.getSelectedRow();
+            if (row < 0) {
+                showError("Pilih order terlebih dahulu.");
+                return;
+            }
+            int orderId = (int) orderTableModel.getValueAt(row, 0);
+            Order.Status status = (Order.Status) statusCombo.getSelectedItem();
+            Order currentOrder = store.getOrderById(orderId);
+            if (currentOrder != null && currentOrder.getStatus() != Order.Status.APPROVED && status != Order.Status.APPROVED) {
+                showError("Setujui order terlebih dahulu (status APPROVED) sebelum memilih status lain.");
+                return;
+            }
+            boolean updated = store.updateOrderStatus(orderId, status);
+            if (updated) {
+                JOptionPane.showMessageDialog(this, "Status order diperbarui.", "Sukses", JOptionPane.INFORMATION_MESSAGE);
+                if (status == Order.Status.APPROVED) {
+                    Order approvedOrder = store.getOrderById(orderId);
+                    if (approvedOrder != null) {
+                        showInvoiceDialog(approvedOrder);
+                    }
+                }
+                refreshOrders();
+            } else {
+                showError("Gagal memperbarui status.");
+            }
+        });
+        JButton refreshBtn = new JButton("Segarkan");
+        refreshBtn.addActionListener(e -> refreshOrders());
+
+        statusPanel.add(new JLabel("Status"));
+        statusPanel.add(statusCombo);
+        statusPanel.add(updateBtn);
+        statusPanel.add(refreshBtn);
+        panel.add(statusPanel, BorderLayout.SOUTH);
+        return panel;
+    }
+
+    private void switchToCustomer() {
+        JLabel welcomeLabel = (JLabel) customerPanel.getClientProperty("welcomeLabel");
+        if (welcomeLabel != null && activeCustomer != null) {
+            welcomeLabel.setText("Halo, " + activeCustomer.getUsername());
+        }
+        refreshProducts();
+        refreshCart();
+        cardLayout.show(cardPanel, "CUSTOMER");
+    }
+
+    private void switchToAdmin() {
+        refreshProducts();
+        refreshOrders();
+        cardLayout.show(cardPanel, "ADMIN");
+    }
+
+    private void refreshProducts() {
+        productTableModel.setRowCount(0);
+        for (Product p : store.getProductsSnapshot()) {
+            productTableModel.addRow(new Object[]{p.getId(), p.getName(), formatCurrency(p.getPrice()), p.getStock()});
+        }
+    }
+
+    private void refreshCart() {
+        cartTableModel.setRowCount(0);
+        cartRowItems.clear();
+        double total = 0;
+        if (activeCustomer != null) {
+            for (CartItem item : activeCustomer.getCart().getItems()) {
+                cartTableModel.addRow(new Object[]{
+                        Boolean.FALSE,
+                        item.getProduct().getName(),
+                        item.getQuantity(),
+                        formatCurrency(item.subtotal())
+                });
+                cartRowItems.add(item);
+                total += item.subtotal();
+            }
+        }
+        cartTotalLabel.setText("Total: " + formatCurrency(total));
+    }
+
+    private void updateTransferBankState() {
+        boolean enabled = paymentCombo.getSelectedItem() == PaymentMethod.TRANSFER_BANK;
+        transferBankCombo.setEnabled(enabled);
+    }
+
+  
