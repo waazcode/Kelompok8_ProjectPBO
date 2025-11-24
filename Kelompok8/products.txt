@@ -1,0 +1,9 @@
+1;Canon EOS R10;Mirrorless 24MP;15000000,00;5
+2;Sony A7 IV;Full-frame 33MP;45000000,00;3
+3;Tripod Pro;Tripod ringan;450000,00;10
+4;Fujifilm X-S20;APS-C hybrid camera;21000000,00;4
+5;Nikon Z6 II;Full-frame 24MP;32000000,00;2
+6;GoPro Hero 12;Action cam 5.3K;8500000,00;7
+7;Sigma 35mm f/1.4;Lensa prime art;14500000,00;5
+8;Godox SL60W;Continuous light kit;2200000,00;8
+9;Peak Design Everyday Backpack;Tas kamera premium 20L;4800000,00;8
