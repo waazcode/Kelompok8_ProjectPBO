@@ -521,4 +521,267 @@ public class MainGUI extends JFrame {
         transferBankCombo.setEnabled(enabled);
     }
 
-  
+  private void refreshOrders() {
+        orderTableModel.setRowCount(0);
+        for (Order o : store.getOrdersSnapshot()) {
+            orderTableModel.addRow(new Object[]{
+                    o.getId(),
+                    o.getCustomer().getUsername(),
+                    formatCurrency(o.totalAmount()),
+                    o.getStatus()
+            });
+        }
+        if (orderTableModel.getRowCount() > 0) {
+            orderTable.setRowSelectionInterval(0, 0);
+            populateOrderItems(0);
+        } else {
+            orderItemsTableModel.setRowCount(0);
+        }
+    }
+
+    private void checkoutSelectedItems() {
+        if (activeCustomer == null) return;
+        List<CartItem> selectedItems = getSelectedCartItems();
+        if (selectedItems.isEmpty()) {
+            showError("Pilih minimal satu produk untuk checkout.");
+            return;
+        }
+        Cart tempCart = new Cart();
+        List<Integer> selectedProductIds = new ArrayList<>();
+        for (CartItem item : selectedItems) {
+            tempCart.addItem(item.getProduct(), item.getQuantity());
+            selectedProductIds.add(item.getProduct().getId());
+        }
+        PaymentMethod pm = (PaymentMethod) paymentCombo.getSelectedItem();
+        TransferBank transferBank = null;
+        if (pm == PaymentMethod.TRANSFER_BANK) {
+            transferBank = (TransferBank) transferBankCombo.getSelectedItem();
+            if (transferBank == null) {
+                showError("Pilih bank tujuan untuk transfer.");
+                return;
+            }
+        }
+        try {
+            Order order = activeCustomer.placeOrder(tempCart, store, pm, transferBank);
+            if (order != null) {
+                JOptionPane.showMessageDialog(this,
+                        "Order berhasil dibuat dengan ID #" + order.getId() + ". Menunggu konfirmasi admin.",
+                        "Checkout Berhasil",
+                        JOptionPane.INFORMATION_MESSAGE);
+                activeCustomer.getCart().removeItemsByProductIds(selectedProductIds);
+                refreshCart();
+                refreshProducts();
+                refreshOrders();
+            } else {
+                showError("Order gagal dibuat. Coba lagi.");
+            }
+        } catch (InsufficientStockException e) {
+            showError("Stok tidak mencukupi: " + e.getMessage());
+            refreshProducts();
+        }
+    }
+
+    private List<CartItem> getSelectedCartItems() {
+        List<CartItem> selected = new ArrayList<>();
+        for (int i = 0; i < cartTableModel.getRowCount(); i++) {
+            Object value = cartTableModel.getValueAt(i, 0);
+            boolean isSelected = value instanceof Boolean && (Boolean) value;
+            if (isSelected && i < cartRowItems.size()) {
+                selected.add(cartRowItems.get(i));
+            }
+        }
+        return selected;
+    }
+
+    private void removeSelectedCartItems() {
+        if (activeCustomer == null) return;
+        List<CartItem> selectedItems = getSelectedCartItems();
+        if (selectedItems.isEmpty()) {
+            showError("Pilih minimal satu produk untuk dibatalkan.");
+            return;
+        }
+        List<Integer> ids = new ArrayList<>();
+        for (CartItem item : selectedItems) {
+            ids.add(item.getProduct().getId());
+        }
+        activeCustomer.getCart().removeItemsByProductIds(ids);
+        refreshCart();
+    }
+
+    private void showCustomerOrders() {
+        if (activeCustomer == null) return;
+        historyTableModel.setRowCount(0);
+        for (Order o : store.getOrdersByCustomer(activeCustomer)) {
+            historyTableModel.addRow(new Object[]{
+                    o.getId(),
+                    formatCurrency(o.totalAmount()),
+                    o.getStatus(),
+                    o.getPaymentLabel()
+            });
+        }
+
+        JTable historyTable = new JTable(historyTableModel);
+        historyTable.setRowHeight(26);
+        JScrollPane scrollPane = new JScrollPane(historyTable);
+        scrollPane.setPreferredSize(new Dimension(520, 240));
+
+        JPanel panel = new JPanel(new BorderLayout(8, 8));
+        panel.add(scrollPane, BorderLayout.CENTER);
+
+        if (historyTableModel.getRowCount() == 0) {
+            panel.add(new JLabel("Belum ada pesanan."), BorderLayout.SOUTH);
+        }
+
+        JOptionPane.showMessageDialog(this, panel, "Riwayat Pesanan", JOptionPane.PLAIN_MESSAGE);
+    }
+
+    private void populateOrderItems(int orderRow) {
+        orderItemsTableModel.setRowCount(0);
+        if (orderRow < 0 || orderRow >= orderTableModel.getRowCount()) return;
+        int orderId = (int) orderTableModel.getValueAt(orderRow, 0);
+        Order order = store.getOrderById(orderId);
+        if (order == null) return;
+        for (CartItem item : order.getItems()) {
+            orderItemsTableModel.addRow(new Object[]{
+                    item.getProduct().getName(),
+                    item.getQuantity(),
+                    formatCurrency(item.subtotal())
+            });
+        }
+    }
+
+    private void showInvoiceDialog(Order order) {
+        Invoice invoice = new Invoice(order);
+        JTextArea textArea = new JTextArea(invoice.toString());
+        textArea.setEditable(false);
+        textArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 13));
+        textArea.setCaretPosition(0);
+
+        JScrollPane scrollPane = new JScrollPane(textArea);
+        scrollPane.setPreferredSize(new Dimension(440, 320));
+
+        JOptionPane.showMessageDialog(this, scrollPane, "Invoice Order #" + order.getId(), JOptionPane.INFORMATION_MESSAGE);
+    }
+
+    private void populateProductForm(int row) {
+        if (row < 0) return;
+        Object idObj = productTableModel.getValueAt(row, 0);
+        productIdField.setText(String.valueOf(idObj));
+        productNameField.setText(String.valueOf(productTableModel.getValueAt(row, 1)));
+        // Deskripsi tidak ada di tabel; ambil langsung dari store
+        Product p = store.getProductById((int) idObj);
+        if (p != null) {
+            productDescField.setText(p.getDescription());
+            productPriceField.setText(String.valueOf((long) p.getPrice()));
+            productStockField.setText(String.valueOf(p.getStock()));
+        }
+    }
+
+    private void addProduct() {
+        try {
+            int id = Integer.parseInt(productIdField.getText().trim());
+            String name = productNameField.getText().trim();
+            String desc = productDescField.getText().trim();
+            double price = Double.parseDouble(productPriceField.getText().trim());
+            int stock = Integer.parseInt(productStockField.getText().trim());
+            if (name.isEmpty() || desc.isEmpty()) {
+                showError("Nama dan deskripsi wajib diisi.");
+                return;
+            }
+            if (store.getProductById(id) != null) {
+                showError("ID produk sudah dipakai.");
+                return;
+            }
+            store.addProduct(new Product(id, name, desc, price, stock));
+            JOptionPane.showMessageDialog(this, "Produk berhasil ditambahkan.", "Sukses", JOptionPane.INFORMATION_MESSAGE);
+            refreshProducts();
+            clearProductForm();
+        } catch (NumberFormatException ex) {
+            showError("Pastikan ID, harga, dan stok berupa angka.");
+        }
+    }
+
+    private void updateProduct() {
+        try {
+            int id = Integer.parseInt(productIdField.getText().trim());
+            Product product = store.getProductById(id);
+            if (product == null) {
+                showError("Produk tidak ditemukan.");
+                return;
+            }
+            if (!productNameField.getText().trim().isEmpty()) {
+                product.setName(productNameField.getText().trim());
+            }
+            if (!productDescField.getText().trim().isEmpty()) {
+                product.setDescription(productDescField.getText().trim());
+            }
+            if (!productPriceField.getText().trim().isEmpty()) {
+                product.setPrice(Double.parseDouble(productPriceField.getText().trim()));
+            }
+            if (!productStockField.getText().trim().isEmpty()) {
+                product.setStock(Integer.parseInt(productStockField.getText().trim()));
+            }
+            store.persistProducts();
+            JOptionPane.showMessageDialog(this, "Produk diperbarui.", "Sukses", JOptionPane.INFORMATION_MESSAGE);
+            refreshProducts();
+        } catch (NumberFormatException ex) {
+            showError("Input angka tidak valid.");
+        }
+    }
+
+    private void deleteProduct() {
+        try {
+            int id = Integer.parseInt(productIdField.getText().trim());
+            boolean removed = store.removeProductById(id);
+            if (removed) {
+                JOptionPane.showMessageDialog(this, "Produk dihapus.", "Sukses", JOptionPane.INFORMATION_MESSAGE);
+                refreshProducts();
+                clearProductForm();
+            } else {
+                showError("Produk tidak ditemukan.");
+            }
+        } catch (NumberFormatException ex) {
+            showError("Masukkan ID angka sebelum menghapus.");
+        }
+    }
+
+    private void clearProductForm() {
+        productIdField.setText("");
+        productNameField.setText("");
+        productDescField.setText("");
+        productPriceField.setText("");
+        productStockField.setText("");
+    }
+
+    private JPanel createBasePanel() {
+        JPanel panel = new JPanel(new BorderLayout(16, 16));
+        panel.setBorder(new EmptyBorder(24, 24, 24, 24));
+        panel.setBackground(new Color(245, 246, 250));
+        return panel;
+    }
+
+    private TitledBorder createCardBorder(String title) {
+        TitledBorder border = BorderFactory.createTitledBorder(title);
+        border.setTitleFont(border.getTitleFont().deriveFont(Font.BOLD));
+        return border;
+    }
+
+    private void showError(String message) {
+        JOptionPane.showMessageDialog(this, message, "Perhatian", JOptionPane.WARNING_MESSAGE);
+    }
+
+    private String formatCurrency(double amount) {
+        return String.format(new Locale("id", "ID"), "Rp %,.0f", amount);
+    }
+
+    public static void main(String[] args) {
+        try {
+            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+        } catch (Exception ignored) {}
+        SwingUtilities.invokeLater(() -> {
+            MainGUI gui = new MainGUI();
+            gui.setVisible(true);
+        });
+    }
+}
+
